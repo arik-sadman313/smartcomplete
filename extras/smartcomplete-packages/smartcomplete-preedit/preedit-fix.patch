@@ -1,0 +1,150 @@
+--- a/src/engine/engine.cpp
++++ b/src/engine/engine.cpp
+@@ -329,7 +329,7 @@
+         ic->commitString(predictor_->buffer());
+         predictor_->clear_buffer();
+         current_candidates_.clear();
+-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
++        clear_state(ic);
+     }
+ }
+ 
+@@ -347,8 +347,7 @@
+         ic->commitString(sp != std::string::npos ? word.substr(0, sp) : word);
+         predictor_->clear_buffer();
+         current_candidates_.clear();
+-        selected_index_ = -1;
+-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
++        clear_state(ic);
+         return;
+     }
+ 
+@@ -361,8 +360,7 @@
+     ic->commitString(final_word);
+     predictor_->clear_buffer();
+     current_candidates_.clear();
+-    selected_index_ = -1;
+-    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
++    clear_state(ic);
+ }
+ 
+ void LinuxCompleteEngine::update_candidates(fcitx::InputContext* ic) {
+@@ -402,7 +400,9 @@
+         if (!current_candidates_.empty()) {
+             // Ghost text: show the best completion inline.
+             const auto& best = current_candidates_[0].word;
+-            if (best.length() > buffer.length()) {
++            // Corrections such as dont -> don't are not literal suffixes.
++            if (best.length() > buffer.length() &&
++                text_utils::to_lower_ascii(best).rfind(text_utils::to_lower_ascii(buffer), 0) == 0) {
+                 preedit.append(best.substr(buffer.length()), fcitx::TextFormatFlag::Underline);
+             }
+         }
+--- a/tests/engine_shortcuts_regression.cpp
++++ b/tests/engine_shortcuts_regression.cpp
+@@ -20,11 +20,12 @@
+     ~Client() override { destroy(); }
+     const char* frontend() const override { return "test"; }
+     std::string committed;
++    std::string displayed_preedit;
+ private:
+     void commitStringImpl(const std::string& text) override { committed += text; }
+     void deleteSurroundingTextImpl(int, unsigned int) override {}
+     void forwardKeyImpl(const fcitx::ForwardKeyEvent&) override {}
+-    void updatePreeditImpl() override {}
++    void updatePreeditImpl() override { displayed_preedit = inputPanel().clientPreedit().toString(); }
+ };
+ 
+ struct IsolatedHome {
+@@ -188,6 +189,9 @@
+             const auto before = client.committed;
+             EXPECT(send(engine, client, fcitx::Key(accept)));
+             EXPECT(client.committed == before + expected);
++            EXPECT(client.inputPanel().candidateList() == nullptr);
++            EXPECT(client.inputPanel().preedit().toString().empty());
++            EXPECT(client.inputPanel().clientPreedit().toString().empty());
+         }
+     }
+     // Clicking uses the same visible candidates and commit path as the keyboard.
+@@ -203,6 +207,8 @@
+         if (expected[0] >= 'A' && expected[0] <= 'Z') expected[0] += 32;
+         list->candidate(1).select(&client);
+         EXPECT(client.committed == expected);
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        EXPECT(client.inputPanel().clientPreedit().toString().empty());
+     }
+     EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
+     EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
+@@ -255,10 +261,72 @@
+     }
+ }
+ 
++
++void committed_text_replaces_preedit() {
++    for (auto mode : {0, 1, 2, 3, 4}) {
++        fcitx::InputContextManager manager;
++        Client client(manager);
++        client.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
++        linuxcomplete::LinuxCompleteEngine engine(nullptr);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++        EXPECT(client.displayed_preedit.size() > 2);
++        EXPECT(client.displayed_preedit.rfind("he", 0) == 0);
++        if (mode == 0) EXPECT(send(engine, client, fcitx::Key(FcitxKey_Tab)));
++        if (mode == 1) EXPECT(send(engine, client, fcitx::Key(FcitxKey_Return)));
++        if (mode == 2) {
++            auto list = client.inputPanel().candidateList();
++            EXPECT(list != nullptr);
++            if (list) list->candidate(0).select(&client);
++        }
++        if (mode == 3) {
++            EXPECT(!send(engine, client, fcitx::Key(FcitxKey_1)));
++            EXPECT(client.committed == "he");
++        }
++        if (mode == 4) {
++            EXPECT(send(engine, client, fcitx::Key(FcitxKey_period)));
++            EXPECT(!client.committed.empty() && client.committed.back() == '.');
++        }
++        EXPECT(!client.committed.empty());
++        EXPECT(client.displayed_preedit.empty());
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        const auto committed = client.committed;
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
++        EXPECT(client.displayed_preedit == "z");
++        EXPECT(client.committed == committed);
++    }
++}
++
++void contraction_preedit() {
++    fcitx::InputContextManager manager;
++    Client client(manager);
++    client.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
++    linuxcomplete::LinuxCompleteEngine engine(nullptr);
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_i)));
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_space)));
++    for (char ch : std::string("dont"))
++        EXPECT(send(engine, client, fcitx::Key(static_cast<fcitx::KeySym>(ch))));
++    EXPECT(client.committed == "i ");
++    // A correction inserts an apostrophe inside the word; it is not a suffix.
++    EXPECT(client.displayed_preedit == "dont");
++    auto list = client.inputPanel().candidateList();
++    EXPECT(list != nullptr);
++    if (list) EXPECT(list->candidate(0).text().toString() == "don't");
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_Tab)));
++    EXPECT(client.committed == "i don't");
++    EXPECT(client.displayed_preedit.empty());
++    EXPECT(client.inputPanel().candidateList() == nullptr);
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_t)));
++    EXPECT(client.displayed_preedit == "t");
++    EXPECT(client.committed == "i don't");
++}
++
+ } // namespace
+ 
+ int main() {
+     IsolatedHome home;
++    contraction_preedit();
++    committed_text_replaces_preedit();
+     url_fields();
+     compact_list();
+     shortcuts();

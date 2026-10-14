@@ -1,0 +1,198 @@
+--- a/src/engine/engine.cpp
++++ b/src/engine/engine.cpp
+@@ -108,6 +108,23 @@
+     auto* ic = event.inputContext();
+     auto key = event.key();
+     if (event.isRelease()) return;
++
++    // Keep application shortcuts out of prediction and candidate acceptance.
++    // Flush only literal input, never the highlighted completion.
++    if (key.states().test(fcitx::KeyState::Ctrl) ||
++        key.states().test(fcitx::KeyState::Alt) ||
++        key.sym() == FcitxKey_Control_L || key.sym() == FcitxKey_Control_R ||
++        key.sym() == FcitxKey_Alt_L || key.sym() == FcitxKey_Alt_R) {
++        if (!predictor_->buffer().empty()) {
++            ic->commitString(predictor_->buffer());
++            predictor_->clear_buffer();
++        }
++        current_candidates_.clear();
++        clear_state(ic);
++        return;
++    }
++    // Pressing Shift alone must not split an in-progress word.
++    if (key.sym() == FcitxKey_Shift_L || key.sym() == FcitxKey_Shift_R) return;
+ 
+     // ── Pass-through for blocklisted programs (terminals, shells) ──
+     // Shell tab-completion + autocorrection would fight each other,
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -186,3 +186,12 @@
+ add_test(NAME linuxcomplete_rules_tool_regression
+     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules_tool_regression.py
+ )
++
++add_executable(linuxcomplete_engine_shortcuts_test
++    tests/engine_shortcuts_regression.cpp
++    src/engine/engine.cpp
++    src/engine/engine_config.cpp
++)
++target_link_libraries(linuxcomplete_engine_shortcuts_test PRIVATE Fcitx5::Core linuxcomplete_predictor)
++add_test(NAME linuxcomplete_engine_shortcuts_regression COMMAND linuxcomplete_engine_shortcuts_test)
++set_tests_properties(linuxcomplete_engine_shortcuts_regression PROPERTIES TIMEOUT 60)
+--- /dev/null
++++ b/tests/engine_shortcuts_regression.cpp
+@@ -0,0 +1,154 @@
++#include "engine/engine.h"
++#include <fcitx/inputcontext.h>
++#include <fcitx/inputcontextmanager.h>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <iostream>
++#include <stdexcept>
++#include <string>
++#include <vector>
++
++namespace {
++int failures = 0;
++#define EXPECT(x) do { if (!(x)) { std::cerr << "FAIL line " << __LINE__ << ": " #x "\n"; ++failures; } } while (0)
++
++// Exercise the real engine and Fcitx key events; only the client is a test double.
++class Client : public fcitx::InputContext {
++public:
++    explicit Client(fcitx::InputContextManager& manager) : InputContext(manager, "test-editor") { created(); }
++    ~Client() override { destroy(); }
++    const char* frontend() const override { return "test"; }
++    std::string committed;
++private:
++    void commitStringImpl(const std::string& text) override { committed += text; }
++    void deleteSurroundingTextImpl(int, unsigned int) override {}
++    void forwardKeyImpl(const fcitx::ForwardKeyEvent&) override {}
++    void updatePreeditImpl() override {}
++};
++
++struct IsolatedHome {
++    std::string previous = std::getenv("HOME") ? std::getenv("HOME") : "";
++    bool had_home = std::getenv("HOME") != nullptr;
++    std::filesystem::path path;
++    IsolatedHome() {
++        auto pattern = (std::filesystem::temp_directory_path() / "smartcomplete-shortcuts-XXXXXX").string();
++        std::vector<char> name(pattern.begin(), pattern.end());
++        name.push_back('\0');
++        auto* result = mkdtemp(name.data());
++        if (!result) throw std::runtime_error("mkdtemp failed");
++        path = result;
++        setenv("HOME", result, 1);
++        auto dict = path / ".local/share/linuxcomplete/dict";
++        std::filesystem::create_directories(dict);
++        std::ofstream(dict / "en_US.txt") << "hello\nhelp\nhelmet\n";
++        auto ngram = dict.parent_path() / "ngram";
++        std::filesystem::create_directories(ngram);
++        std::ofstream(ngram / "en_bigrams.txt") << "hello help 100\n";
++        auto config = path / ".config/linuxcomplete";
++        std::filesystem::create_directories(config);
++        std::ofstream(config / "linuxcomplete.conf")
++            << R"({"min_prefix_length":2,"min_candidate_score":0,"complete_word_extension_min_score":0,"ai_rerank_enabled":false})";
++        // Never use a real provider during an engine test.
++        setenv("LINUXCOMPLETE_AI_ENABLED", "0", 1);
++    }
++    ~IsolatedHome() {
++        if (had_home) setenv("HOME", previous.c_str(), 1); else unsetenv("HOME");
++        std::filesystem::remove_all(path);
++    }
++};
++
++bool send(linuxcomplete::LinuxCompleteEngine& engine, Client& client,
++          const fcitx::Key& key, bool release = false) {
++    fcitx::InputMethodEntry entry("linuxcomplete", "SmartComplete", "en", "linuxcomplete");
++    fcitx::KeyEvent event(&client, key, release);
++    engine.keyEvent(entry, event);
++    EXPECT(event.accepted() == event.filtered());
++    return event.accepted();
++}
++
++void shortcuts() {
++    const std::vector<fcitx::KeyStates> modifiers = {
++        fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
++        fcitx::KeyState::Ctrl_Shift, fcitx::KeyState::Alt_Shift,
++        fcitx::KeyState::Ctrl_Alt
++    };
++    const std::vector<fcitx::KeySym> symbols = {
++        FcitxKey_a, FcitxKey_Tab, FcitxKey_Return, FcitxKey_space,
++        FcitxKey_Escape, FcitxKey_Up, FcitxKey_Down, FcitxKey_period,
++        FcitxKey_BackSpace
++    };
++    for (auto states : modifiers) for (auto symbol : symbols) {
++        fcitx::InputContextManager manager;
++        Client client(manager);
++        linuxcomplete::LinuxCompleteEngine engine(nullptr);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++        EXPECT(client.inputPanel().candidateList() != nullptr);
++        EXPECT(!send(engine, client, fcitx::Key(symbol, states)));
++        EXPECT(client.committed == "he");
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        EXPECT(client.inputPanel().clientPreedit().toString().empty());
++        EXPECT(!send(engine, client, fcitx::Key(symbol, states), true));
++        EXPECT(client.committed == "he");
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
++        EXPECT(client.inputPanel().clientPreedit().toString() == "z");
++    }
++}
++
++void empty_and_next_word() {
++    for (auto state : {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}) {
++        fcitx::InputContextManager manager;
++        Client client(manager);
++        linuxcomplete::LinuxCompleteEngine engine(nullptr);
++        EXPECT(!send(engine, client, fcitx::Key(FcitxKey_c, state)));
++        EXPECT(client.committed.empty());
++        EXPECT(client.inputPanel().clientPreedit().toString().empty());
++        for (char ch : std::string("hello"))
++            EXPECT(send(engine, client, fcitx::Key(static_cast<fcitx::KeySym>(ch))));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_space)));
++        EXPECT(client.committed == "hello ");
++        EXPECT(client.inputPanel().candidateList() != nullptr);
++        EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Tab, state)));
++        EXPECT(client.committed == "hello ");
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++    }
++}
++
++void modifier_keys_and_shift() {
++    for (auto symbol : {FcitxKey_Control_L, FcitxKey_Control_R, FcitxKey_Alt_L, FcitxKey_Alt_R}) {
++        fcitx::InputContextManager manager;
++        Client client(manager);
++        linuxcomplete::LinuxCompleteEngine engine(nullptr);
++        EXPECT(!send(engine, client, fcitx::Key(symbol)));
++        EXPECT(client.committed.empty());
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(!send(engine, client, fcitx::Key(symbol)));
++        EXPECT(client.committed == "h");
++        EXPECT(client.inputPanel().clientPreedit().toString().empty());
++    }
++    fcitx::InputContextManager manager;
++    Client client(manager);
++    linuxcomplete::LinuxCompleteEngine engine(nullptr);
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_H, fcitx::KeyState::Shift)));
++    EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Shift_L)));
++    EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Shift_R)));
++    EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Shift_L), true));
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_E, fcitx::KeyState::Shift)));
++    EXPECT(client.committed.empty());
++    EXPECT(client.inputPanel().clientPreedit().toString().rfind("HE", 0) == 0);
++    EXPECT(client.inputPanel().candidateList() != nullptr);
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_Tab)));
++    EXPECT(!client.committed.empty());
++}
++} // namespace
++
++int main() {
++    IsolatedHome home;
++    shortcuts();
++    empty_and_next_word();
++    modifier_keys_and_shift();
++    std::cout << "Engine shortcut failures: " << failures << '\n';
++    return failures ? 1 : 0;
++}

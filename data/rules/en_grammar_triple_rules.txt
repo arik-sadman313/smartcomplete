@@ -1706,6 +1706,7 @@ can	took	it	-350
 can	took	me	-350
 can	took	the	-350
 can	took	to	-350
+can	we	reschedule	240
 can	went	a	-350
 can	went	her	-350
 can	went	him	-350
@@ -2001,6 +2002,7 @@ could	went	it	-350
 could	went	me	-350
 could	went	the	-350
 could	went	to	-350
+could	you	clarify	240
 could	you	help	220
 could	you	please	250
 day	after	day	190
@@ -3967,6 +3969,7 @@ i	has	going	-350
 i	has	not	-350
 i	has	the	-350
 i	has	very	-350
+i	have	attached	250
 i	is	a	-400
 i	is	been	-350
 i	is	going	-350
@@ -5309,6 +5312,7 @@ learn	to	use	224
 learn	to	work	161
 learn	to	write	224
 less	and	less	190
+let	me	know	250
 like	to	be	224
 like	to	bring	175
 like	to	build	224
@@ -6367,6 +6371,7 @@ plan	to	try	224
 plan	to	use	224
 plan	to	work	197
 plan	to	write	224
+please	find	attached	250
 prefer	to	be	224
 prefer	to	bring	171
 prefer	to	build	224
@@ -7311,6 +7316,7 @@ supposed	to	go	200
 take	a	look	210
 take	care	of	230
 take	part	in	200
+thank	you	for	250
 that	available	answer	147
 that	available	change	136
 that	available	example	144
@@ -10288,6 +10294,7 @@ we	has	going	-350
 we	has	not	-350
 we	has	the	-350
 we	has	very	-350
+we	have	attached	250
 we	is	a	-350
 we	is	been	-350
 we	is	going	-350
@@ -11299,6 +11306,7 @@ word	after	word	190
 word	by	word	195
 word	to	word	185
 worse	and	worse	190
+would	appreciate	it	230
 would	bought	a	-350
 would	bought	her	-350
 would	bought	him	-350

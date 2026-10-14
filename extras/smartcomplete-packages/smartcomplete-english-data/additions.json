@@ -1,0 +1,210 @@
+{
+  "new_dictionary_words": [
+    "reschedule",
+    "rescheduled",
+    "rescheduling",
+    "timezones",
+    "unavailable",
+    "onboarding",
+    "offboarding",
+    "workflows",
+    "actionable",
+    "troubleshooting",
+    "workarounds",
+    "screenshots",
+    "attachments",
+    "deadlines",
+    "milestones",
+    "regressions",
+    "reproducible",
+    "reproducibility",
+    "authentication",
+    "unsubscribe",
+    "notifications",
+    "passkeys",
+    "webinars"
+  ],
+  "new_frequency_priorities": {
+    "reschedule": 500,
+    "rescheduled": 360,
+    "rescheduling": 340,
+    "timezone": 350,
+    "timezones": 220,
+    "availability": 500,
+    "unavailable": 350,
+    "onboarding": 400,
+    "offboarding": 250,
+    "workflow": 450,
+    "workflows": 300,
+    "feedback": 500,
+    "actionable": 250,
+    "troubleshoot": 300,
+    "troubleshooting": 450,
+    "workaround": 400,
+    "workarounds": 280,
+    "screenshot": 480,
+    "screenshots": 380,
+    "attachment": 450,
+    "attachments": 350,
+    "bandwidth": 300,
+    "backlog": 300,
+    "deadline": 480,
+    "deadlines": 320,
+    "milestone": 350,
+    "milestones": 280,
+    "deployment": 450,
+    "rollback": 350,
+    "regression": 350,
+    "regressions": 250,
+    "reproducible": 400,
+    "reproducibility": 250,
+    "asynchronous": 300,
+    "authentication": 500,
+    "authorization": 400,
+    "accessibility": 400,
+    "unsubscribe": 350,
+    "notification": 450,
+    "notifications": 350,
+    "cybersecurity": 300,
+    "passkey": 300,
+    "passkeys": 220,
+    "webinar": 300,
+    "webinars": 220
+  },
+  "new_pairs": [
+    [
+      "reschedule",
+      "for",
+      250
+    ],
+    [
+      "rescheduled",
+      "for",
+      250
+    ],
+    [
+      "available",
+      "for",
+      230
+    ],
+    [
+      "attachment",
+      "contains",
+      190
+    ],
+    [
+      "reproducible",
+      "example",
+      220
+    ],
+    [
+      "troubleshooting",
+      "steps",
+      220
+    ]
+  ],
+  "new_triples": [
+    [
+      "can",
+      "we",
+      "reschedule",
+      240
+    ],
+    [
+      "could",
+      "you",
+      "clarify",
+      240
+    ],
+    [
+      "i",
+      "have",
+      "attached",
+      250
+    ],
+    [
+      "we",
+      "have",
+      "attached",
+      250
+    ],
+    [
+      "please",
+      "find",
+      "attached",
+      250
+    ],
+    [
+      "thank",
+      "you",
+      "for",
+      250
+    ],
+    [
+      "let",
+      "me",
+      "know",
+      250
+    ],
+    [
+      "would",
+      "appreciate",
+      "it",
+      230
+    ]
+  ],
+  "new_bigrams": [
+    [
+      "reschedule",
+      "for",
+      400
+    ],
+    [
+      "rescheduled",
+      "for",
+      400
+    ],
+    [
+      "available",
+      "tomorrow",
+      320
+    ],
+    [
+      "onboarding",
+      "process",
+      420
+    ],
+    [
+      "troubleshooting",
+      "steps",
+      420
+    ],
+    [
+      "reproducible",
+      "example",
+      430
+    ],
+    [
+      "screenshots",
+      "attached",
+      350
+    ],
+    [
+      "workflow",
+      "automation",
+      320
+    ]
+  ],
+  "new_phrases": [
+    "can we reschedule the meeting 470",
+    "can we schedule a call 450",
+    "thanks for your feedback 470",
+    "thanks for your patience 460",
+    "would appreciate your feedback 440",
+    "would appreciate your help 430",
+    "to reproduce the issue 450",
+    "the attached document 440",
+    "the attached screenshot 430"
+  ],
+  "corrected_pair": "responsible for: -301 -> 250"
+}

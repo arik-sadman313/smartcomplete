@@ -1,0 +1,98 @@
+--- a/scripts/install.sh
++++ b/scripts/install.sh
+@@ -381,7 +381,8 @@
+ 
+ # Check fcitx5 picked up the addon.
+ if command -v fcitx5-diagnose &>/dev/null; then
+-    if fcitx5-diagnose 2>/dev/null | grep -q "linuxcomplete"; then
++    # Drain all output: grep -q can trigger SIGPIPE in diagnose under pipefail.
++    if fcitx5-diagnose 2>/dev/null | grep "linuxcomplete" >/dev/null; then
+         ok "Fcitx5 detected SmartComplete addon"
+     else
+         warn "Fcitx5 didn't list SmartComplete — try: killall fcitx5 && fcitx5 -d"
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -186,3 +186,7 @@
+ add_test(NAME linuxcomplete_rules_tool_regression
+     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules_tool_regression.py
+ )
++add_test(NAME linuxcomplete_installer_detection_regression
++    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_detection_regression.py
++)
++set_tests_properties(linuxcomplete_installer_detection_regression PROPERTIES TIMEOUT 60)
+--- /dev/null
++++ b/tests/installer_detection_regression.py
+@@ -0,0 +1,73 @@
++#!/usr/bin/env python3
++"""Exercise the installer's actual detection pipeline without running installation."""
++import os
++from pathlib import Path
++import re
++import shlex
++import subprocess
++import sys
++import unittest
++
++
++INSTALLER = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
++# A default SIGPIPE disposition reproduces a Unix producer interrupted by grep -q.
++# Output greatly exceeds a pipe buffer, so an early reader exit cannot race past it.
++PRODUCER = r"""
++import os
++import signal
++signal.signal(signal.SIGPIPE, signal.SIG_DFL)
++if os.environ['DETECTION_CASE'] != 'absent':
++    os.write(1, b'linuxcomplete\n')
++chunk = b'x' * 4095 + b'\n'
++for _ in range(8192):
++    os.write(1, chunk)
++raise SystemExit(7 if os.environ['DETECTION_CASE'] == 'error' else 0)
++"""
++
++
++class InstallerDetectionRegression(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        source = INSTALLER.read_text(encoding="utf-8")
++        matches = re.findall(
++            r'^\s*if (fcitx5-diagnose[^\n]+); then\s*$', source, re.MULTILINE
++        )
++        if len(matches) != 1:
++            raise AssertionError("Expected exactly one installer detection pipeline")
++        cls.pipeline = matches[0]
++
++    def run_detection(self, case):
++        # Shadow only the external diagnostic command. Execute the real installer
++        # condition under its pipefail semantics, with no system state changes.
++        script = (
++            "set -o pipefail\n"
++            "fcitx5-diagnose() { "
++            + shlex.quote(sys.executable) + " -c " + shlex.quote(PRODUCER)
++            + "; }\n" + self.pipeline + "\n"
++        )
++        return subprocess.run(
++            ["bash", "-c", script],
++            env={**os.environ, "DETECTION_CASE": case},
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            timeout=15,
++            check=False,
++        )
++
++    def test_match_with_large_trailing_output_succeeds(self):
++        result = self.run_detection("present")
++        self.assertEqual(result.returncode, 0, result.stderr.decode())
++        self.assertEqual(result.stdout, b"")
++
++    def test_missing_match_fails(self):
++        result = self.run_detection("absent")
++        self.assertEqual(result.returncode, 1, result.stderr.decode())
++        self.assertEqual(result.stdout, b"")
++
++    def test_diagnostic_failure_is_not_hidden_by_match(self):
++        result = self.run_detection("error")
++        self.assertEqual(result.returncode, 7, result.stderr.decode())
++
++
++if __name__ == "__main__":
++    unittest.main()

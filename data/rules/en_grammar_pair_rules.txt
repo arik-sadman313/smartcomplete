@@ -984,6 +984,7 @@ attached	of	108
 attached	on	102
 attached	to	109
 attached	with	106
+attachment	contains	190
 attack	about	81
 attack	against	75
 attack	between	77
@@ -1083,6 +1084,7 @@ authority	to	73
 authority	towards	62
 authority	with	70
 available	change	137
+available	for	230
 available	job	142
 available	plan	139
 available	project	140
@@ -9593,6 +9595,7 @@ report	to	-521
 report	towards	-532
 report	upon	-302
 report	with	-524
+reproducible	example	220
 reputation	about	-528
 reputation	against	-534
 reputation	between	-532
@@ -9635,6 +9638,8 @@ requirement	over	-539
 requirement	to	-530
 requirement	towards	-541
 requirement	with	-533
+reschedule	for	250
+rescheduled	for	250
 rescue	about	-293
 rescue	after	-306
 rescue	against	-300
@@ -9842,7 +9847,7 @@ responsibility	with	-557
 responsible	about	-303
 responsible	at	-304
 responsible	by	-308
-responsible	for	-301
+responsible	for	250
 responsible	from	-307
 responsible	in	-305
 responsible	of	-300
@@ -12123,6 +12128,7 @@ trouble	over	-701
 trouble	to	-692
 trouble	towards	-703
 trouble	with	-695
+troubleshooting	steps	220
 trust	about	-699
 trust	after	-438
 trust	against	-705

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300">
+  <rect width="760" height="300" fill="#E8EBF0"/>
+  <g font-family="sans-serif">
+    <text x="28" y="32" font-size="18" fill="#20252E">SmartComplete · three English suggestions</text>
+    <text x="28" y="55" font-size="12" fill="#505968">Design preview — not a screenshot of a running Fcitx5 session</text>
+    <text x="28" y="99" font-size="12" fill="#505968">LIGHT</text>
+    <rect x="28" y="114" width="318" height="60" rx="10" fill="#000000" opacity="0.08"/>
+    <rect x="28" y="110" width="318" height="60" rx="10" fill="#FAFAFC" stroke="#D5DAE2"/>
+    <rect x="38" y="120" width="96" height="40" rx="7" fill="#185ABD"/>
+    <text x="58" y="146" font-size="17" fill="#FFFFFF">hello</text>
+    <text x="157" y="146" font-size="17" fill="#20252E">help</text>
+    <text x="246" y="146" font-size="17" fill="#20252E">helpful</text>
+    <text x="408" y="99" font-size="12" fill="#505968">DARK</text>
+    <rect x="408" y="114" width="318" height="60" rx="10" fill="#000000" opacity="0.12"/>
+    <rect x="408" y="110" width="318" height="60" rx="10" fill="#242830" stroke="#444C59"/>
+    <rect x="418" y="120" width="96" height="40" rx="7" fill="#9CC8FF"/>
+    <text x="438" y="146" font-size="17" fill="#10233E">hello</text>
+    <text x="537" y="146" font-size="17" fill="#F3F5FA">help</text>
+    <text x="626" y="146" font-size="17" fill="#F3F5FA">helpful</text>
+    <text x="28" y="215" font-size="14" fill="#20252E">↑ ↓ Select     Tab / Enter Accept     Click a suggestion to insert it</text>
+    <text x="28" y="243" font-size="13" fill="#505968">Ctrl / Alt shortcuts pass through. Shift typing is preserved.</text>
+    <text x="28" y="269" font-size="12" fill="#505968">Actual panel sizing and position depend on Fcitx5, the application and display scaling.</text>
+  </g>
+</svg>

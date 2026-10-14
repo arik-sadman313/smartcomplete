@@ -90,6 +90,11 @@ install(FILES config/linuxcomplete-im.conf
     RENAME linuxcomplete.conf
 )
 
+# Match the input method entry and tray menu icon name.
+install(FILES data/icons/linuxcomplete.svg
+    DESTINATION "share/icons/hicolor/scalable/apps"
+)
+
 # Install dictionaries
 install(DIRECTORY data/dict/
     DESTINATION "${DICT_INSTALL_DIR}"
@@ -150,6 +155,14 @@ add_executable(linuxcomplete_ai_reranker_test tests/ai_reranker_regression.cpp)
 target_link_libraries(linuxcomplete_ai_reranker_test PRIVATE linuxcomplete_predictor)
 add_test(NAME linuxcomplete_ai_reranker_regression COMMAND linuxcomplete_ai_reranker_test)
 
+add_executable(linuxcomplete_english_data_test tests/english_data_regression.cpp)
+target_link_libraries(linuxcomplete_english_data_test PRIVATE linuxcomplete_predictor)
+target_compile_definitions(linuxcomplete_english_data_test PRIVATE
+    ENGLISH_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+add_test(NAME linuxcomplete_english_data_regression COMMAND linuxcomplete_english_data_test)
+set_tests_properties(linuxcomplete_english_data_regression PROPERTIES TIMEOUT 60)
+
 add_executable(linuxcomplete_data_quality_test tests/data_quality_regression.cpp)
 target_link_libraries(linuxcomplete_data_quality_test PRIVATE linuxcomplete_predictor)
 add_test(NAME linuxcomplete_data_quality_regression COMMAND linuxcomplete_data_quality_test)
@@ -186,3 +199,12 @@ add_test(NAME linuxcomplete_rules_validation
 add_test(NAME linuxcomplete_rules_tool_regression
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules_tool_regression.py
 )
+
+add_executable(linuxcomplete_engine_shortcuts_test
+    tests/engine_shortcuts_regression.cpp
+    src/engine/engine.cpp
+    src/engine/engine_config.cpp
+)
+target_link_libraries(linuxcomplete_engine_shortcuts_test PRIVATE Fcitx5::Core linuxcomplete_predictor)
+add_test(NAME linuxcomplete_engine_shortcuts_regression COMMAND linuxcomplete_engine_shortcuts_test)
+set_tests_properties(linuxcomplete_engine_shortcuts_regression PROPERTIES TIMEOUT 60)

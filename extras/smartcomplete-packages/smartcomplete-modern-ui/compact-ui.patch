@@ -1,0 +1,131 @@
+--- a/src/engine/engine.cpp
++++ b/src/engine/engine.cpp
+@@ -407,26 +407,25 @@
+         for (const auto& ng : predictor_->predict_next_word()) {
+             current_candidates_.push_back({ng.word, ng.score});
+         }
+-        if (!current_candidates_.empty()) {
+-            auto list = std::make_unique<fcitx::CommonCandidateList>();
+-            list->setPageSize(5);
+-            list->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
+-            for (const auto& c : current_candidates_)
+-                list->append<LinuxCompleteCandidate>(this, c);
+-            panel.setCandidateList(std::move(list));
+-        }
+-    }
+-    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
++    }
++    show_candidate_list(ic, fcitx::Text());
+ }
+ 
+ void LinuxCompleteEngine::show_candidate_list(fcitx::InputContext* ic, const fcitx::Text& preedit) {
+     auto& panel = ic->inputPanel();
++    // Cap the backing list too: keyboard navigation must not reach hidden items,
++    // even when an existing predictor config requests more than three results.
++    constexpr std::size_t visible_candidates = 3;
++    if (current_candidates_.size() > visible_candidates)
++        current_candidates_.resize(visible_candidates);
+     if (!current_candidates_.empty()) {
+         auto list = std::make_unique<fcitx::CommonCandidateList>();
+-        list->setPageSize(5);
+-        list->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
++        list->setPageSize(visible_candidates);
++        list->setLayoutHint(fcitx::CandidateLayoutHint::Horizontal);
++        list->setCursorIncludeUnselected(false);
+         for (const auto& c : current_candidates_)
+             list->append<LinuxCompleteCandidate>(this, c);
++        list->setGlobalCursorIndex(0);
+         panel.setCandidateList(std::move(list));
+     }
+     panel.setPreedit(preedit);
+--- a/tests/engine_shortcuts_regression.cpp
++++ b/tests/engine_shortcuts_regression.cpp
+@@ -41,14 +41,20 @@
+         setenv("HOME", result, 1);
+         auto dict = path / ".local/share/linuxcomplete/dict";
+         std::filesystem::create_directories(dict);
+-        std::ofstream(dict / "en_US.txt") << "hello\nhelp\nhelmet\n";
++        std::ofstream(dict / "en_US.txt") << "hello\nhelp\nhelmet\nhelper\nhelpful\n";
++        auto frequency = dict.parent_path() / "frequency";
++        std::filesystem::create_directories(frequency);
++        std::ofstream(frequency / "en_freq.txt") << "hello 1000\nhelp 1000\nhelmet 1000\nhelper 1000\nhelpful 1000\n";
+         auto ngram = dict.parent_path() / "ngram";
+         std::filesystem::create_directories(ngram);
+-        std::ofstream(ngram / "en_bigrams.txt") << "hello help 100\n";
++        std::ofstream(ngram / "en_bigrams.txt") << "hello help 100\nhello helmet 90\nhello helper 80\nhello helpful 70\n";
++        auto emoji = dict.parent_path() / "emoji";
++        std::filesystem::create_directories(emoji);
++        std::ofstream(emoji / "en_emoji.tsv") << ":smile\t😊\t500\n:sad\t😢\t490\n:sun\t☀️\t480\n:star\t⭐\t470\n";
+         auto config = path / ".config/linuxcomplete";
+         std::filesystem::create_directories(config);
+         std::ofstream(config / "linuxcomplete.conf")
+-            << R"({"min_prefix_length":2,"min_candidate_score":0,"complete_word_extension_min_score":0,"ai_rerank_enabled":false})";
++            << R"({"max_candidates":8,"min_prefix_length":2,"min_candidate_score":0,"complete_word_extension_min_score":0,"ai_rerank_enabled":false})";
+         // Never use a real provider during an engine test.
+         setenv("LINUXCOMPLETE_AI_ENABLED", "0", 1);
+     }
+@@ -142,10 +148,64 @@
+     EXPECT(send(engine, client, fcitx::Key(FcitxKey_Tab)));
+     EXPECT(!client.committed.empty());
+ }
++
++void compact_list() {
++    for (const auto& input : {std::string("he"), std::string("hello "), std::string(":s")}) {
++        for (auto accept : {FcitxKey_Tab, FcitxKey_Return}) {
++            fcitx::InputContextManager manager;
++            Client client(manager);
++            linuxcomplete::LinuxCompleteEngine engine(nullptr);
++            for (char ch : input)
++                EXPECT(send(engine, client, fcitx::Key(static_cast<fcitx::KeySym>(ch))));
++            auto list = client.inputPanel().candidateList();
++            EXPECT(list != nullptr);
++            if (!list) continue;
++            EXPECT(list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal);
++            EXPECT(list->size() == 3);
++            if (list->size() < 3) continue;
++            EXPECT(list->toBulk()->totalSize() == 3);
++            EXPECT(!list->toPageable()->hasNext());
++            EXPECT(list->cursorIndex() == 0);
++            for (int i = 1; i <= 6; ++i) {
++                EXPECT(send(engine, client, fcitx::Key(FcitxKey_Down)));
++                EXPECT(list->cursorIndex() == i % 3);
++            }
++            EXPECT(send(engine, client, fcitx::Key(FcitxKey_Up)));
++            EXPECT(list->cursorIndex() == 2);
++            std::string expected = list->candidate(2).text().toString();
++            if (input == ":s") expected = expected.substr(0, expected.find(' '));
++            // Existing commit behavior preserves a lowercase typed prefix even
++            // when sentence-start suggestions are capitalized for display.
++            if (input == "he" && expected[0] >= 'A' && expected[0] <= 'Z') expected[0] += 32;
++            const auto before = client.committed;
++            EXPECT(send(engine, client, fcitx::Key(accept)));
++            EXPECT(client.committed == before + expected);
++        }
++    }
++    // Clicking uses the same visible candidates and commit path as the keyboard.
++    fcitx::InputContextManager manager;
++    Client client(manager);
++    linuxcomplete::LinuxCompleteEngine engine(nullptr);
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++    auto list = client.inputPanel().candidateList();
++    EXPECT(list != nullptr);
++    if (list && list->size() > 1) {
++        auto expected = list->candidate(1).text().toString();
++        if (expected[0] >= 'A' && expected[0] <= 'Z') expected[0] += 32;
++        list->candidate(1).select(&client);
++        EXPECT(client.committed == expected);
++    }
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
++    EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
++    EXPECT(client.inputPanel().candidateList() == nullptr);
++}
++
+ } // namespace
+ 
+ int main() {
+     IsolatedHome home;
++    compact_list();
+     shortcuts();
+     empty_and_next_word();
+     modifier_keys_and_shift();

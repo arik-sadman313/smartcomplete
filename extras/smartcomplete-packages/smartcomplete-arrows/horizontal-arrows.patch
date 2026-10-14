@@ -1,0 +1,72 @@
+--- a/src/engine/engine.cpp
++++ b/src/engine/engine.cpp
+@@ -178,22 +178,25 @@
+     };
+ 
+     // ── Arrow navigation ──
+-    if (key.check(FcitxKey_Down) || key.check(FcitxKey_Up)) {
++    if (key.check(FcitxKey_Down) || key.check(FcitxKey_Up) ||
++        (!current_candidates_.empty() &&
++         (key.check(FcitxKey_Right) || key.check(FcitxKey_Left)))) {
+         if (current_candidates_.empty()) return;
++        const bool next = key.check(FcitxKey_Down) || key.check(FcitxKey_Right);
+         const int n = static_cast<int>(current_candidates_.size());
+         // Fcitx5's candidate list shows the first item as visually-highlighted by
+         // default. So treat unset/-1 as "cursor is at 0" before advancing, or the
+         // internal index drifts one step behind the highlight and Tab commits the
+         // wrong word.
+         const int base = (selected_index_ < 0) ? 0 : selected_index_;
+-        selected_index_ = key.check(FcitxKey_Down)
++        selected_index_ = next
+             ? (base + 1) % n
+             : (base - 1 + n) % n;
+         auto& panel = ic->inputPanel();
+         auto list = panel.candidateList();
+         if (list) {
+             auto* cursor = list->toCursorMovable();
+-            if (cursor) key.check(FcitxKey_Down) ? cursor->nextCandidate() : cursor->prevCandidate();
++            if (cursor) next ? cursor->nextCandidate() : cursor->prevCandidate();
+             ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+         }
+         event.filterAndAccept();
+--- a/tests/engine_shortcuts_regression.cpp
++++ b/tests/engine_shortcuts_regression.cpp
+@@ -81,7 +81,7 @@
+     };
+     const std::vector<fcitx::KeySym> symbols = {
+         FcitxKey_a, FcitxKey_Tab, FcitxKey_Return, FcitxKey_space,
+-        FcitxKey_Escape, FcitxKey_Up, FcitxKey_Down, FcitxKey_period,
++        FcitxKey_Escape, FcitxKey_Up, FcitxKey_Down, FcitxKey_Left, FcitxKey_Right, FcitxKey_period,
+         FcitxKey_BackSpace
+     };
+     for (auto states : modifiers) for (auto symbol : symbols) {
+@@ -168,11 +168,17 @@
+             EXPECT(list->toBulk()->totalSize() == 3);
+             EXPECT(!list->toPageable()->hasNext());
+             EXPECT(list->cursorIndex() == 0);
+-            for (int i = 1; i <= 6; ++i) {
+-                EXPECT(send(engine, client, fcitx::Key(FcitxKey_Down)));
+-                EXPECT(list->cursorIndex() == i % 3);
++            for (auto direction : {FcitxKey_Right, FcitxKey_Down}) {
++                for (int i = 1; i <= 6; ++i) {
++                    EXPECT(send(engine, client, fcitx::Key(direction)));
++                    EXPECT(list->cursorIndex() == i % 3);
++                }
+             }
++            EXPECT(send(engine, client, fcitx::Key(FcitxKey_Left)));
++            EXPECT(list->cursorIndex() == 2);
+             EXPECT(send(engine, client, fcitx::Key(FcitxKey_Up)));
++            EXPECT(list->cursorIndex() == 1);
++            EXPECT(send(engine, client, fcitx::Key(FcitxKey_Right)));
+             EXPECT(list->cursorIndex() == 2);
+             std::string expected = list->candidate(2).text().toString();
+             if (input == ":s") expected = expected.substr(0, expected.find(' '));
+@@ -201,6 +207,8 @@
+     EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
+     EXPECT(send(engine, client, fcitx::Key(FcitxKey_z)));
+     EXPECT(client.inputPanel().candidateList() == nullptr);
++    EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Left)));
++    EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Right)));
+ }
+ 
+ } // namespace

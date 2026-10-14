@@ -76,7 +76,7 @@ std::vector<fcitx::InputMethodEntry> LinuxCompleteEngine::listInputMethods() {
     std::vector<fcitx::InputMethodEntry> result;
     result.emplace_back(std::move(
         fcitx::InputMethodEntry("linuxcomplete", "SmartComplete", "*", "linuxcomplete")
-            .setIcon("input-keyboard")
+            .setIcon("linuxcomplete")
             .setLabel("SC")
     ));
     return result;
@@ -104,10 +104,37 @@ void LinuxCompleteEngine::reset(const fcitx::InputMethodEntry&, fcitx::InputCont
 // Key event handling
 // ═══════════════════════════════════════════
 
+bool LinuxCompleteEngine::bypass_url_field(fcitx::InputContext* ic) {
+    if (!ic->capabilityFlags().test(fcitx::CapabilityFlag::Url)) return false;
+    // Never inject a completion or a previous field's composition into a URL.
+    predictor_->on_sentence_boundary();
+    current_candidates_.clear();
+    clear_state(ic);
+    return true;
+}
+
 void LinuxCompleteEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& event) {
     auto* ic = event.inputContext();
     auto key = event.key();
     if (event.isRelease()) return;
+    if (bypass_url_field(ic)) return;
+
+    // Keep application shortcuts out of prediction and candidate acceptance.
+    // Flush only literal input, never the highlighted completion.
+    if (key.states().test(fcitx::KeyState::Ctrl) ||
+        key.states().test(fcitx::KeyState::Alt) ||
+        key.sym() == FcitxKey_Control_L || key.sym() == FcitxKey_Control_R ||
+        key.sym() == FcitxKey_Alt_L || key.sym() == FcitxKey_Alt_R) {
+        if (!predictor_->buffer().empty()) {
+            ic->commitString(predictor_->buffer());
+            predictor_->clear_buffer();
+        }
+        current_candidates_.clear();
+        clear_state(ic);
+        return;
+    }
+    // Pressing Shift alone must not split an in-progress word.
+    if (key.sym() == FcitxKey_Shift_L || key.sym() == FcitxKey_Shift_R) return;
 
     // ── Pass-through for blocklisted programs (terminals, shells) ──
     // Shell tab-completion + autocorrection would fight each other,
@@ -161,22 +188,25 @@ void LinuxCompleteEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEve
     };
 
     // ── Arrow navigation ──
-    if (key.check(FcitxKey_Down) || key.check(FcitxKey_Up)) {
+    if (key.check(FcitxKey_Down) || key.check(FcitxKey_Up) ||
+        (!current_candidates_.empty() &&
+         (key.check(FcitxKey_Right) || key.check(FcitxKey_Left)))) {
         if (current_candidates_.empty()) return;
+        const bool next = key.check(FcitxKey_Down) || key.check(FcitxKey_Right);
         const int n = static_cast<int>(current_candidates_.size());
         // Fcitx5's candidate list shows the first item as visually-highlighted by
         // default. So treat unset/-1 as "cursor is at 0" before advancing, or the
         // internal index drifts one step behind the highlight and Tab commits the
         // wrong word.
         const int base = (selected_index_ < 0) ? 0 : selected_index_;
-        selected_index_ = key.check(FcitxKey_Down)
+        selected_index_ = next
             ? (base + 1) % n
             : (base - 1 + n) % n;
         auto& panel = ic->inputPanel();
         auto list = panel.candidateList();
         if (list) {
             auto* cursor = list->toCursorMovable();
-            if (cursor) key.check(FcitxKey_Down) ? cursor->nextCandidate() : cursor->prevCandidate();
+            if (cursor) next ? cursor->nextCandidate() : cursor->prevCandidate();
             ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         }
         event.filterAndAccept();
@@ -299,7 +329,7 @@ void LinuxCompleteEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEve
         ic->commitString(predictor_->buffer());
         predictor_->clear_buffer();
         current_candidates_.clear();
-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        clear_state(ic);
     }
 }
 
@@ -308,6 +338,7 @@ void LinuxCompleteEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEve
 // ═══════════════════════════════════════════
 
 void LinuxCompleteEngine::commit_candidate(fcitx::InputContext* ic, const std::string& word) {
+    if (bypass_url_field(ic)) return;
     const std::string buffer = predictor_->buffer();
 
     // Emoji candidate: extract emoji character before the space.
@@ -316,8 +347,7 @@ void LinuxCompleteEngine::commit_candidate(fcitx::InputContext* ic, const std::s
         ic->commitString(sp != std::string::npos ? word.substr(0, sp) : word);
         predictor_->clear_buffer();
         current_candidates_.clear();
-        selected_index_ = -1;
-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        clear_state(ic);
         return;
     }
 
@@ -330,8 +360,7 @@ void LinuxCompleteEngine::commit_candidate(fcitx::InputContext* ic, const std::s
     ic->commitString(final_word);
     predictor_->clear_buffer();
     current_candidates_.clear();
-    selected_index_ = -1;
-    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    clear_state(ic);
 }
 
 void LinuxCompleteEngine::update_candidates(fcitx::InputContext* ic) {
@@ -371,7 +400,9 @@ void LinuxCompleteEngine::update_candidates(fcitx::InputContext* ic) {
         if (!current_candidates_.empty()) {
             // Ghost text: show the best completion inline.
             const auto& best = current_candidates_[0].word;
-            if (best.length() > buffer.length()) {
+            // Corrections such as dont -> don't are not literal suffixes.
+            if (best.length() > buffer.length() &&
+                text_utils::to_lower_ascii(best).rfind(text_utils::to_lower_ascii(buffer), 0) == 0) {
                 preedit.append(best.substr(buffer.length()), fcitx::TextFormatFlag::Underline);
             }
         }
@@ -390,26 +421,25 @@ void LinuxCompleteEngine::update_next_word_candidates(fcitx::InputContext* ic) {
         for (const auto& ng : predictor_->predict_next_word()) {
             current_candidates_.push_back({ng.word, ng.score});
         }
-        if (!current_candidates_.empty()) {
-            auto list = std::make_unique<fcitx::CommonCandidateList>();
-            list->setPageSize(5);
-            list->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
-            for (const auto& c : current_candidates_)
-                list->append<LinuxCompleteCandidate>(this, c);
-            panel.setCandidateList(std::move(list));
-        }
     }
-    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    show_candidate_list(ic, fcitx::Text());
 }
 
 void LinuxCompleteEngine::show_candidate_list(fcitx::InputContext* ic, const fcitx::Text& preedit) {
     auto& panel = ic->inputPanel();
+    // Cap the backing list too: keyboard navigation must not reach hidden items,
+    // even when an existing predictor config requests more than three results.
+    constexpr std::size_t visible_candidates = 3;
+    if (current_candidates_.size() > visible_candidates)
+        current_candidates_.resize(visible_candidates);
     if (!current_candidates_.empty()) {
         auto list = std::make_unique<fcitx::CommonCandidateList>();
-        list->setPageSize(5);
-        list->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
+        list->setPageSize(visible_candidates);
+        list->setLayoutHint(fcitx::CandidateLayoutHint::Horizontal);
+        list->setCursorIncludeUnselected(false);
         for (const auto& c : current_candidates_)
             list->append<LinuxCompleteCandidate>(this, c);
+        list->setGlobalCursorIndex(0);
         panel.setCandidateList(std::move(list));
     }
     panel.setPreedit(preedit);

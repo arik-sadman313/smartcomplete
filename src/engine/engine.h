@@ -72,6 +72,7 @@ private:
     void update_next_word_candidates(fcitx::InputContext* ic);
     void show_candidate_list(fcitx::InputContext* ic, const fcitx::Text& preedit);
     void clear_state(fcitx::InputContext* ic);
+    bool bypass_url_field(fcitx::InputContext* ic);
     bool is_letter_key(const fcitx::Key& key, std::string& ch) const;
     AutoCorrectResult detect_space_autocorrect() const;
     bool apply_space_autocorrect(fcitx::InputContext* ic, bool& swallow_space);

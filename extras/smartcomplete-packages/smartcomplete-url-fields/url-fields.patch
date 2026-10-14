@@ -1,0 +1,108 @@
+--- a/src/engine/engine.cpp
++++ b/src/engine/engine.cpp
+@@ -104,10 +104,20 @@
+ // Key event handling
+ // ═══════════════════════════════════════════
+ 
++bool LinuxCompleteEngine::bypass_url_field(fcitx::InputContext* ic) {
++    if (!ic->capabilityFlags().test(fcitx::CapabilityFlag::Url)) return false;
++    // Never inject a completion or a previous field's composition into a URL.
++    predictor_->on_sentence_boundary();
++    current_candidates_.clear();
++    clear_state(ic);
++    return true;
++}
++
+ void LinuxCompleteEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& event) {
+     auto* ic = event.inputContext();
+     auto key = event.key();
+     if (event.isRelease()) return;
++    if (bypass_url_field(ic)) return;
+ 
+     // Keep application shortcuts out of prediction and candidate acceptance.
+     // Flush only literal input, never the highlighted completion.
+@@ -328,6 +338,7 @@
+ // ═══════════════════════════════════════════
+ 
+ void LinuxCompleteEngine::commit_candidate(fcitx::InputContext* ic, const std::string& word) {
++    if (bypass_url_field(ic)) return;
+     const std::string buffer = predictor_->buffer();
+ 
+     // Emoji candidate: extract emoji character before the space.
+--- a/src/engine/engine.h
++++ b/src/engine/engine.h
+@@ -72,6 +72,7 @@
+     void update_next_word_candidates(fcitx::InputContext* ic);
+     void show_candidate_list(fcitx::InputContext* ic, const fcitx::Text& preedit);
+     void clear_state(fcitx::InputContext* ic);
++    bool bypass_url_field(fcitx::InputContext* ic);
+     bool is_letter_key(const fcitx::Key& key, std::string& ch) const;
+     AutoCorrectResult detect_space_autocorrect() const;
+     bool apply_space_autocorrect(fcitx::InputContext* ic, bool& swallow_space);
+--- a/tests/engine_shortcuts_regression.cpp
++++ b/tests/engine_shortcuts_regression.cpp
+@@ -16,7 +16,7 @@
+ // Exercise the real engine and Fcitx key events; only the client is a test double.
+ class Client : public fcitx::InputContext {
+ public:
+-    explicit Client(fcitx::InputContextManager& manager) : InputContext(manager, "test-editor") { created(); }
++    explicit Client(fcitx::InputContextManager& manager, const std::string& program = "test-editor") : InputContext(manager, program) { created(); }
+     ~Client() override { destroy(); }
+     const char* frontend() const override { return "test"; }
+     std::string committed;
+@@ -211,10 +211,55 @@
+     EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Right)));
+ }
+ 
++
++void url_fields() {
++    for (const auto& program : {"microsoft-edge", "chromium", "firefox"}) {
++        fcitx::InputContextManager manager;
++        Client client(manager, program);
++        linuxcomplete::LinuxCompleteEngine engine(nullptr);
++        client.setCapabilityFlags(fcitx::CapabilityFlag::Url);
++        for (auto key : {FcitxKey_h, FcitxKey_e, FcitxKey_l, FcitxKey_colon,
++                        FcitxKey_slash, FcitxKey_period, FcitxKey_space,
++                        FcitxKey_Tab, FcitxKey_Return, FcitxKey_BackSpace,
++                        FcitxKey_Left, FcitxKey_Right, FcitxKey_Up, FcitxKey_Down}) {
++            EXPECT(!send(engine, client, fcitx::Key(key)));
++            EXPECT(client.committed.empty());
++            EXPECT(client.inputPanel().candidateList() == nullptr);
++            EXPECT(client.inputPanel().clientPreedit().toString().empty());
++        }
++        // A normal text field in the same browser still gets suggestions.
++        client.setCapabilityFlags(fcitx::CapabilityFlag::NoFlag);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++        auto oldList = client.inputPanel().candidateList();
++        EXPECT(oldList != nullptr);
++        client.setCapabilityFlags(fcitx::CapabilityFlag::Url);
++        if (oldList) oldList->candidate(0).select(&client);
++        EXPECT(client.committed.empty());
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        EXPECT(client.inputPanel().clientPreedit().toString().empty());
++        client.setCapabilityFlags(fcitx::CapabilityFlag::NoFlag);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++        // Changing field purpose must not commit the previous field's buffer.
++        client.setCapabilityFlags(fcitx::CapabilityFlag::Url);
++        EXPECT(!send(engine, client, fcitx::Key(FcitxKey_Tab)));
++        EXPECT(client.committed.empty());
++        EXPECT(client.inputPanel().candidateList() == nullptr);
++        client.setCapabilityFlags(fcitx::CapabilityFlag::NoFlag);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_h)));
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_e)));
++        EXPECT(client.inputPanel().candidateList() != nullptr);
++        EXPECT(send(engine, client, fcitx::Key(FcitxKey_Tab)));
++        EXPECT(!client.committed.empty());
++    }
++}
++
+ } // namespace
+ 
+ int main() {
+     IsolatedHome home;
++    url_fields();
+     compact_list();
+     shortcuts();
+     empty_and_next_word();
