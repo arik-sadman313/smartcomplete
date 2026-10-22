@@ -29,3 +29,8 @@ install.log
 # Build directory variants
 build-*/
 cmake-build-*/
+
+# Python & test scratch
+__pycache__/
+*.pyc
+scratch/
